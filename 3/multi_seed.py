@@ -1,31 +1,31 @@
-# multi_seed.py
-import os
-import random
-import csv
-import numpy as np
-import matplotlib.pyplot as plt
-from runner import run_agent
-from agents import PredictiveAgent, QLearningAgent, SarsaLearningAgent
-from fishing_logic import FISH_TYPES
+# multi_seed.py  # run multiple seeds and aggregate results across agents
+import os  # filesystem utilities
+import random  # python RNG for reproducibility control
+import csv  # read/write CSV files
+import numpy as np  # numeric arrays and statistics
+import matplotlib.pyplot as plt  # plotting
+from runner import run_agent  # function to run training/testing for an agent
+from agents import PredictiveAgent, QLearningAgent, SarsaLearningAgent  # agent classes
+from fishing_logic import FISH_TYPES  # available fish presets
 
-# Seeds 1..5
+# Seeds 1..5 used for repeated experiments
 SEEDS = [1, 2, 3, 4, 5]
-NUM_TRAIN = 2500
-TEST_FISH_TYPES = [f.name for f in FISH_TYPES for _ in range(50)]
-AGENTS = [
-          ("Q-Learning", QLearningAgent)]
+NUM_TRAIN = 2500  # number of training episodes per seed
+TEST_FISH_TYPES = [f.name for f in FISH_TYPES for _ in range(50)]  # long test set of fish names
+AGENTS = [("Q-Learning", QLearningAgent)]  # agents to evaluate (name, class)
 
-os.makedirs("multi_results", exist_ok=True)
-os.makedirs("plots", exist_ok=True)
-os.makedirs("results", exist_ok=True)
+os.makedirs("multi_results", exist_ok=True)  # store per-seed CSVs
+os.makedirs("plots", exist_ok=True)  # store plots
+os.makedirs("results", exist_ok=True)  # store aggregated CSVs
 
-# Run seeds and save per-seed cumulative-cost CSVs
+
+# Run seeds and save per-seed cumulative-cost CSVs (training + testing)
 for seed in SEEDS:
-    random.seed(seed)
-    np.random.seed(seed)
+    random.seed(seed)  # seed python RNG
+    np.random.seed(seed)  # seed numpy RNG for reproducibility
     for name, AgentClass in AGENTS:
         print(f"Seed {seed} — {name}: training")
-        agent = AgentClass()
+        agent = AgentClass()  # instantiate agent for this seed
         train_stats = run_agent(agent, fish_types=None, num_episodes=NUM_TRAIN, do_learning=True, verbose=False, visualize=False)
         train_path = os.path.join("multi_results", f"{name}_seed{seed}_train_costs.csv")
         with open(train_path, "w", newline='') as f:
@@ -53,24 +53,24 @@ def read_csv_cumulative(path):
     costs = []
     with open(path, newline='') as f:
         reader = csv.reader(f)
-        headers = next(reader, None)
+        headers = next(reader, None)  # skip header if present
         for row in reader:
             if not row:
                 continue
             try:
-                costs.append(float(row[1]))
+                costs.append(float(row[1]))  # cumulative cost stored in second column
             except Exception:
                 costs.append(0.0)
     return np.array(costs)
 
 
-# Aggregate and make combined plots: one for training, one for testing
-plt.style.use('seaborn-v0_8')
-fig_t, ax_t = plt.subplots(1, 1, figsize=(10, 6))
-fig_s, ax_s = plt.subplots(1, 1, figsize=(10, 6))
+# Aggregate results across seeds and plot mean ± std for training and testing
+plt.style.use('seaborn-v0_8')  # set plotting style
+fig_t, ax_t = plt.subplots(1, 1, figsize=(10, 6))  # training figure
+fig_s, ax_s = plt.subplots(1, 1, figsize=(10, 6))  # testing figure
 
 for name, _ in AGENTS:
-    # collect train mats for seeds
+    # collect training CSVs for the given agent name
     train_files = [os.path.join('multi_results', f"{name}_seed{seed}_train_costs.csv") for seed in SEEDS]
     train_mats = []
     for p in train_files:
@@ -82,16 +82,16 @@ for name, _ in AGENTS:
         for i, a in enumerate(train_mats):
             mat[i, : len(a)] = a
             if len(a) < maxlen:
-                mat[i, len(a):] = a[-1] if len(a) > 0 else 0.0
-        mean_t = np.mean(mat, axis=0)
-        std_t = np.std(mat, axis=0)
-        # plot individual runs
+                mat[i, len(a):] = a[-1] if len(a) > 0 else 0.0  # pad with last value
+        mean_t = np.mean(mat, axis=0)  # mean across seeds
+        std_t = np.std(mat, axis=0)  # std across seeds
+        # plot individual runs faintly
         for i in range(mat.shape[0]):
             ax_t.plot(mat[i], color='gray', alpha=0.3, linewidth=0.8)
-        # plot mean and std
+        # plot mean and shaded std region
         ax_t.plot(mean_t, label=name, linewidth=2)
         ax_t.fill_between(range(len(mean_t)), mean_t - std_t, mean_t + std_t, alpha=0.2)
-        # save aggregated CSV
+        # save aggregated CSV for training
         out_csv = os.path.join('results', f'{name}_train_mean_std.csv')
         with open(out_csv, 'w', newline='') as f:
             w = csv.writer(f)
@@ -99,7 +99,7 @@ for name, _ in AGENTS:
             for i, (m, s) in enumerate(zip(mean_t, std_t), 1):
                 w.writerow([i, m, s])
 
-    # collect test mats for seeds
+    # collect testing CSVs for the given agent name
     test_files = [os.path.join('multi_results', f"{name}_seed{seed}_test_costs.csv") for seed in SEEDS]
     test_mats = []
     for p in test_files:
@@ -114,13 +114,10 @@ for name, _ in AGENTS:
                 mat[i, len(a):] = a[-1] if len(a) > 0 else 0.0
         mean_s = np.mean(mat, axis=0)
         std_s = np.std(mat, axis=0)
-        # plot individual runs
         for i in range(mat.shape[0]):
             ax_s.plot(mat[i], color='gray', alpha=0.3, linewidth=0.8)
-        # plot mean and std
         ax_s.plot(mean_s, label=name, linewidth=2)
         ax_s.fill_between(range(len(mean_s)), mean_s - std_s, mean_s + std_s, alpha=0.2)
-        # save aggregated CSV
         out_csv = os.path.join('results', f'{name}_test_mean_std.csv')
         with open(out_csv, 'w', newline='') as f:
             w = csv.writer(f)
@@ -128,7 +125,7 @@ for name, _ in AGENTS:
             for i, (m, s) in enumerate(zip(mean_s, std_s), 1):
                 w.writerow([i, m, s])
 
-# finalize training figure
+# finalize and save training figure
 ax_t.set_title('Training: Runs + Mean ± Std (Cumulative Cost)')
 ax_t.set_xlabel('Episode')
 ax_t.set_ylabel('Cumulative Cost')
@@ -140,7 +137,7 @@ fig_t.savefig(p_train)
 plt.close(fig_t)
 print(f'Saved {p_train}')
 
-# finalize testing figure
+# finalize and save testing figure
 ax_s.set_title('Testing: Runs + Mean ± Std (Cumulative Cost)')
 ax_s.set_xlabel('Episode')
 ax_s.set_ylabel('Cumulative Cost')
